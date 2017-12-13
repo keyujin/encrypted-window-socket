@@ -145,16 +145,16 @@ class socket:
 		if self.encrypt:
 			self.nonce = nacl.utils.random(Box.NONCE_SIZE)
 			# Check if host entry exists in privatekeys otherwise use generic ("*","*"")
-			if (("localhost",sock352portRx) in privateKeys):
-				private_key = privateKeys[("localhost",sock352portRx)]
+			if (("localhost",sock352portTx) in privateKeys):
+				private_key = privateKeys[("localhost",sock352portTx)]
 			else:
 				private_key = privateKeys[("*","*")]
 			# Create box with local private key and public key of server
-			server_addr = (address[0], str(sock352portRx))
+			server_addr = (address[0], str(sock352portTx))
 			self.client_box = Box(private_key, publicKeys[server_addr])
 
 		# Connect to server address
-		MAIN_SOCKET.connect((address[0], sock352portRx))
+		MAIN_SOCKET.connect((address[0], sock352portTx))
 
 		# Create SYN header
 		seq_num = 19 # random number
@@ -279,16 +279,16 @@ class socket:
 
 		# Get client's public key
 		if self.encryption:
-			if (("localhost",sock352portRx) in privateKeys):
-				private_key = privateKeys[("localhost",sock352portRx)]
+			if (("localhost",sock352portTx) in privateKeys):
+				private_key = privateKeys[("localhost",sock352portTx)]
 			else:
 				private_key = privateKeys[("*","*")]
 
-			client_addr = (address[0], str(sock352portRx))
+			client_addr = (address[0], str(sock352portTx))
 			if (client_addr in publicKeys):
 				client_public_key = publicKeys[client_addr]
 			else:
-				client_public_key = publicKeys[("localhost", str(sock352portRx))]
+				client_public_key = publicKeys[("localhost", str(sock352portTx))]
 			self.server_box = Box(private_key, client_public_key)
 
 		# Check is valid SYN

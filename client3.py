@@ -11,6 +11,7 @@ import struct
 import md5
 import os 
 import sock352
+import random
 
 def main():
     # parse all the arguments to the client 
@@ -20,15 +21,13 @@ def main():
     parser.add_argument('-p','--port', help='remote sock352 port', required=False)
     parser.add_argument('-u','--udpportRx', help='UDP port to use for receiving', required=True)
     parser.add_argument('-v','--udpportTx', help='UDP port to use for sending', required=False)
-    parser.add_argument('-k','--keyfile', help='keyfile', required=True)
 
     # get the arguments into local variables 
     args = vars(parser.parse_args())
     filename = args['filename']
     destination = args['destination']
     udpportRx = args['udpportRx']
-    keyfilename = args['keyfile']
-    
+
     if (args['udpportTx']):
         udpportTx = args['udpportTx']
     else:
@@ -38,9 +37,9 @@ def main():
     if (args['port']): 
         port = args['port']
     else:
-        port = 5555 
+        port = 1111 
 
-    # open the file to send to the server for reading
+    # open the file for reading
     if (filename):
         try: 
             filesize = os.path.getsize(filename)
@@ -64,16 +63,14 @@ def main():
     else:
         sock352.init(udpportRx,udpportRx)
 
-    # load a keychain from a file
-    keysInHex = sock352.readKeyChain(keyfilename)
-    
     # create a socket and connect to the remote server
     s = sock352.socket()
-    s.connect((destination,port),sock352.ENCRYPT)
+    s.connect((destination,port))
     
     # send the size of the file as a 4 byte integer
     # to the server, so it knows how much to read
-    FRAGMENTSIZE = 8192
+    MAXFRAGMENTSIZE = 8192
+    MINFRAGMENTSIZE = 4096
     longPacker = struct.Struct("!L")
     fileLenPacked = longPacker.pack(filesize);
     s.send(fileLenPacked)
@@ -83,10 +80,11 @@ def main():
 
     # loop for the size of the file, sending the fragments 
     bytes_to_send = filesize
-
+    random.seed(a=119235201)
     start_stamp = time.clock()    
     while (bytes_to_send > 0):
-        fragment = fd.read(FRAGMENTSIZE)
+        size = random.randrange(MINFRAGMENTSIZE,MAXFRAGMENTSIZE)        
+        fragment = fd.read(size)
         mdhash.update(fragment)
         totalsent = 0
         # make sure we sent the whole fragment 
