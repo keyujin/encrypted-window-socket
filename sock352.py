@@ -1,8 +1,9 @@
-# main libraries 
+# main libraries
 import binascii
+import sys
 import socket as syssock
 import struct
-import sys
+import Queue as Q
 
 # encryption libraries 
 import nacl.utils
@@ -85,6 +86,12 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 	# Connection is set?
 	global CONNECTION_SET
 	CONNECTION_SET = False
+
+	global window_size
+	window_size = 32000
+
+	global max_window_size
+	max_window_size = 32000
 
 
 # read the keyfile. The result should be a private key and a keychain of
@@ -469,10 +476,22 @@ class socket:
 	def recv(self, nbytes):
 		# Packets recv
 		# Send right ACK
+
+		window = Q.Queue(maxsize=0)
+
 		try:
 			# Attempt to receive packet (+40 for encryption)
-			(data, address) = MAIN_SOCKET.recvfrom(nbytes + HEADER_LEN + 40)
-			to_return = data[HEADER_LEN:]
+		 	# (data, address) = MAIN_SOCKET.recvfrom(nbytes + HEADER_LEN + 40)
+			(data, address) = MAIN_SOCKET.recvfrom(max_window_size)
+
+			# to_return = data[HEADER_LEN:nbytes]
+
+			window.put(data[HEADER_LEN:])
+
+			global window_size
+			window_size = window_size - len(data)
+
+			to_return = window.get(nbytes)
 
 			# Unpack header
 			unpacked_header = struct.unpack(PKT_HEADER_FMT, data[:HEADER_LEN])
