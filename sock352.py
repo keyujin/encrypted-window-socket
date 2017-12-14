@@ -44,18 +44,6 @@ ENCRYPT = 236
 global IS_ENCRYPTED
 IS_ENCRYPTED = 0b01
 
-global IS_FULL
-IS_FULL = False
-
-global client_addr
-
-global returned
-returned = 0
-global delivered
-delivered = 0
-global got
-got = 0
-
 # these functions are global to the class and
 # define the UDP ports all messages are sent
 # and received from
@@ -99,10 +87,13 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 	CONNECTION_SET = False
 
 	global window_size
-	window_size = 32000
+	window_size = 3200000
 
 	global max_window_size
-	max_window_size = 32000
+	max_window_size = 3200000
+
+	global queue
+	queue = ""
 
 # read the keyfile. The result should be a private key and a keychain of
 # public keys
@@ -383,7 +374,8 @@ class socket:
 										  0,
 										  WINDOW,
 										  0)
-
+		'''
+		
 		# Set timeout to 0.2 seconds
 		MAIN_SOCKET.settimeout(0.2)
 
@@ -396,13 +388,14 @@ class socket:
 
 			if (recv_header[1] != ACK or recv_header[1] != FIN):
 				print("Error: Attempted to close but no ACK/FIN received.")
+				print recv_header[1]
 				return
 
 			MAIN_SOCKET.sendall(ack_header)
 		except syssock.error:
 			# Timed out waiting for ACK/FIN
 			pass
-
+		'''
 		MAIN_SOCKET.close()
 
 		global CONNECTION_SET
@@ -496,16 +489,18 @@ class socket:
 		return seq_num
 
 	def recv(self, nbytes):
-		print "nbytes:"
-		print nbytes
 		# Get globals
 		global data
+		global queue
 		global address
 		global window_size
 
-		# Setup FIFO queue
-		window = Q.Queue(maxsize=0)
-
+		if CONNECTION_SET == False:
+			# Get data and return
+			to_return = queue[:nbytes]
+			print nbytes - len(to_return)
+			queue = queue[nbytes:]
+			return to_return
 		# Try to receive data from client
 		try:
 			(data, address) = MAIN_SOCKET.recvfrom(window_size+80)
@@ -546,7 +541,7 @@ class socket:
 		# If we don't have space for entire delivery
 		if len(delivery) > window_size:
 			# Put from start of delivery to remaining window size
-			window.put(delivery[:(window_size + nbytes)])
+			queue = queue + delivery[:(window_size + nbytes)]
 			ack_num = header[8] + window_size
 			window_size = 0
 
@@ -568,13 +563,8 @@ class socket:
 		else:
 			#print "hi"
 			# Put entire delivery and calculate remaining size
-			window.put(delivery)
-			print "qsize before"
-			print window.qsize()
-			print "delivery:"
-			print len(delivery)
-			window_size = window_size - len(delivery) + nbytes +
-			window_size = 32000
+			queue = queue + delivery
+			window_size = window_size - len(delivery) + nbytes
 
 			# Gets sequence number and assigns to ack_num
 			ack_num = header[8] + len(delivery)
@@ -594,22 +584,9 @@ class socket:
 										  0)
 			MAIN_SOCKET.sendto(header, address)
 
-		#print "test2"
-		print "window size:"
-		print window_size
-
-		global returned
-		global delivered
-		global got
-		to_return = window.get(nbytes)
-		returned += nbytes
-		got += len(to_return)
-		delivered += len(delivery)
-		print "differential:"
-		print returned - delivered
-		print "differential2:"
-		print returned - got
-		print "qsize:"
-		print window.qsize()
 		# Get data and return
+		to_return = queue[:nbytes]
+		print nbytes - len(to_return)
+		queue = queue[nbytes:]
+
 		return to_return
