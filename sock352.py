@@ -432,15 +432,9 @@ class socket:
 			else:
 				end_dist = seq_num + default_packet_size
 
+
 			# Calculate size of our payload
 			payload_len = end_dist - seq_num
-
-			# Encrypt and preempt size increase
-			if self.encrypt:
-				payload = self.client_box.encrypt(buffer[seq_num:end_dist], self)
-				seq_num -= 40
-			else:
-				payload = buffer[seq_num:end_dist]
 
 			# Create header and send our packet
 			header = PKT_HEADER_DATA.pack(VERSION,
@@ -455,6 +449,14 @@ class socket:
 										  0,
 										  WINDOW,
 										  payload_len)
+
+			# Encrypt and preempt size increase
+			if self.encrypt:
+				payload = self.client_box.encrypt(buffer[seq_num:end_dist], self.nonce)
+				seq_num -= 40
+			else:
+				payload = buffer[seq_num:end_dist]
+
 			MAIN_SOCKET.send(header + payload)
 
 			try:
