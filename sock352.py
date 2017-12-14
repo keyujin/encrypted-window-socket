@@ -87,10 +87,10 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 	CONNECTION_SET = False
 
 	global window_size
-	window_size = 3200000
+	window_size = 32000
 
 	global max_window_size
-	max_window_size = 3200000
+	max_window_size = 32000
 
 	global queue
 	queue = ""
@@ -349,6 +349,7 @@ class socket:
 
 
 	def close(self):
+
 		fin_header = PKT_HEADER_DATA.pack(VERSION,
 										  FIN,
 										  OPT_PTR,
@@ -374,10 +375,6 @@ class socket:
 										  0,
 										  WINDOW,
 										  0)
-		'''
-		
-		# Set timeout to 0.2 seconds
-		MAIN_SOCKET.settimeout(0.2)
 
 		try:
 			MAIN_SOCKET.sendall(fin_header)
@@ -395,7 +392,7 @@ class socket:
 		except syssock.error:
 			# Timed out waiting for ACK/FIN
 			pass
-		'''
+
 		MAIN_SOCKET.close()
 
 		global CONNECTION_SET
@@ -478,7 +475,7 @@ class socket:
 					ack = MAIN_SOCKET.recv(HEADER_LEN)
 				except syssock.error:
 					if attempts == 10:
-						print("Error: send() failed")
+						print("Error: send()123123 failed")
 
 				unpacked_ack = struct.unpack(PKT_HEADER_FMT, ack)
 				window_size = unpacked_ack[10]
@@ -489,29 +486,26 @@ class socket:
 		return seq_num
 
 	def recv(self, nbytes):
+
 		# Get globals
 		global data
 		global queue
 		global address
 		global window_size
+		global CONNECTION_SET
 
+		# Check for closed connection
 		if CONNECTION_SET == False:
-			# Get data and return
+			# Get data left from queue and return
 			to_return = queue[:nbytes]
-			print nbytes - len(to_return)
 			queue = queue[nbytes:]
 			return to_return
-		# Try to receive data from client
-		try:
-			(data, address) = MAIN_SOCKET.recvfrom(window_size+80)
 
-		# On timeout, either queue is full or client done sending
-		except syssock.timeout:
-			'''
-			# Update window size
-			window_size += nbytes
-
-			# Send header just in case
+		if window_size == 0:
+			to_return = queue[:nbytes]
+			queue = queue[nbytes:]
+			window_size = nbytes
+			# Send header indicating queue is full
 			header = PKT_HEADER_DATA.pack(VERSION,
 										  ACK,
 										  OPT_PTR,
@@ -521,12 +515,15 @@ class socket:
 										  SRC_PORT,
 										  DEST_PORT,
 										  0,
-										  nbytes,
+										  window_size,
 										  window_size,
 										  0)
-			MAIN_SOCKET.sendto(header, client_addr)
-			return window.get(nbytes)
-			'''
+			MAIN_SOCKET.sendto(header, address)
+			return to_return
+
+		# Try to receive data from client
+		try:
+			(data, address) = MAIN_SOCKET.recvfrom(window_size+80)
 		except syssock.error:
 			print("Error: recv() failed")
 			return ""
@@ -534,10 +531,17 @@ class socket:
 		# Separate header and actual data (delivery), unpack header
 		delivery = data[HEADER_LEN:]
 		header = struct.unpack(PKT_HEADER_FMT, data[:HEADER_LEN])
-		opts = header[2]
-		if opts == IS_ENCRYPTED:
+		# Check for encryption modifier
+		if header[2] == IS_ENCRYPTED:
 			delivery = self.server_box.decrypt(delivery)
-		#print "test1"
+		# Check for close message
+		if header[1] == FIN:
+			# Get data to return and set connection to False
+			to_return = queue[:nbytes]
+			queue = queue[nbytes:]
+			CONNECTION_SET = False
+			return to_return
+
 		# If we don't have space for entire delivery
 		if len(delivery) > window_size:
 			# Put from start of delivery to remaining window size
@@ -561,7 +565,6 @@ class socket:
 			MAIN_SOCKET.sendto(header, address)
 
 		else:
-			#print "hi"
 			# Put entire delivery and calculate remaining size
 			queue = queue + delivery
 			window_size = window_size - len(delivery) + nbytes
@@ -586,7 +589,6 @@ class socket:
 
 		# Get data and return
 		to_return = queue[:nbytes]
-		print nbytes - len(to_return)
+		print window_size
 		queue = queue[nbytes:]
-
 		return to_return
