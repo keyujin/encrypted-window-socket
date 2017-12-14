@@ -461,7 +461,6 @@ class socket:
 					window_size = unpacked_ack_header[10]
 
 					print window_size
-
 				# If received ACK num higher than current, update highest_ack_num
 				if (unpacked_ack_header[9] > highest_ack_num):
 					highest_ack_num = unpacked_ack_header[9]
@@ -490,8 +489,17 @@ class socket:
 
 			# If we don't have space for the delivery
 			# Update remaining window size
-			window_size = window_size - len(delivery) + nbytes
+
 			if header[11] > window_size:
+				window_size = nbytes
+				opts = header[2]
+				if opts == IS_ENCRYPTED:
+					delivery = self.server_box.decrypt(delivery)
+
+				window.put(delivery[:window_size])
+
+				ack_num = header[8] + window_size
+
 				header = PKT_HEADER_DATA.pack(VERSION,
 											  ACK,
 											  OPT_PTR,
@@ -501,13 +509,14 @@ class socket:
 											  SRC_PORT,
 											  DEST_PORT,
 											  0,
-											  0,
+											  ack_num,
 											  window_size,
 											  0)
 				MAIN_SOCKET.sendto(header, address)
 
 			# Otherwise, decrypt delivery if necessary, and add to queue
 			else:
+				window_size = window_size - len(delivery) + nbytes
 				opts = header[2]
 				if opts == IS_ENCRYPTED:
 					window.put(self.server_box.decrypt(delivery))
