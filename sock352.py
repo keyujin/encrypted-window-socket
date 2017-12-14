@@ -45,6 +45,7 @@ global IS_ENCRYPTED
 IS_ENCRYPTED = 0b01
 
 
+
 # these functions are global to the class and
 # define the UDP ports all messages are sent
 # and received from
@@ -92,7 +93,6 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 
 	global max_window_size
 	max_window_size = 32000
-
 
 # read the keyfile. The result should be a private key and a keychain of
 # public keys
@@ -398,33 +398,26 @@ class socket:
 
 
 	def send(self, buffer):
-		# Create header
-		# Send data
-		# Start timer
-		# If timeout, send same packet again
 
-		# Packet size
+		# Packet size <= min fragment size of client
 		packet_size = 2048
 
 		# Initialize header properties
-		payload_len = len(buffer)
-		opts = 0
-		# If payload to be encrypted, increase size by 40
-		if self.encrypt:
-			opts = IS_ENCRYPTED
 		flags = 0
 		seq_num = 0
+		payload_len = len(buffer)
 		highest_ack_num = packet_size * -1
+		if self.encrypt:
+			opts = IS_ENCRYPTED
+		else:
+			opts = 0
 
 		# Set timeout to 0.2 seconds
 		MAIN_SOCKET.settimeout(0.2)
 
-		PKT_HEADER_DATA = struct.Struct(PKT_HEADER_FMT)
-
-		times_to_attempt = 5
-		attempted = 0
-
-		while (seq_num < payload_len and attempted < times_to_attempt):
+		# Send packets (partitions of payload)
+		global window_size
+		while (seq_num < payload_len):
 			# Create header
 			header = PKT_HEADER_DATA.pack(VERSION,
 										  flags,
@@ -438,90 +431,115 @@ class socket:
 										  0,
 										  WINDOW,
 										  packet_size)
+
 			try:
-				# Get size of packet to send
-				gap = seq_num + packet_size
-				end_dist = gap if gap < payload_len else payload_len
+				# Get range of bytes to send
+				if seq_num + packet_size >= payload_len:
+					end_dist = payload_len
+				else:
+					end_dist = seq_num + packet_size
 
 				if self.encrypt:
+					# Encrypt and preempt size increase
 					packet_payload = self.client_box.encrypt(buffer[seq_num:end_dist], self.nonce)
-					# Exclude the size of encryption
-					seq_num -= 40
+					seq_num = seq_num - 40
 				else:
 					packet_payload = buffer[seq_num:end_dist]
 
-				# Add number of bytes sent
+				# Add number of bytes send, excluding header
 				seq_num += MAIN_SOCKET.send(header + packet_payload)
-
-				# Exclude size of header
 				seq_num -= HEADER_LEN
 
-				# Attempt to receive ACK
-				ack_header = MAIN_SOCKET.recv(HEADER_LEN)
+				# Check window size left
+				window_size = 0
+				while (window_size < packet_size):
+					# Attempt to receive ACK
+					ack_header = MAIN_SOCKET.recv(HEADER_LEN)
+					print "test"
+					# Unpack received header & get window size
+					unpacked_ack_header = struct.unpack(PKT_HEADER_FMT, ack_header)
+					window_size = unpacked_ack_header[10]
 
-				# Unpack received header
-				unpacked_ack_header = struct.unpack(PKT_HEADER_FMT, ack_header)
+					print window_size
 
 				# If received ACK num higher than current, update highest_ack_num
 				if (unpacked_ack_header[9] > highest_ack_num):
 					highest_ack_num = unpacked_ack_header[9]
 
 			except syssock.error:
-				attempted += 1
-				seq_num = highest_ack_num + packet_size
-				print("Error: send() failed, trying again")
+				print("Error: send() failed")
+				return 0
 
-		return 0 if attempted == 5 else seq_num
+		return seq_num
 
 	def recv(self, nbytes):
-		# Packets recv
-		# Send right ACK
 
+		# Setup FIFO queue
 		window = Q.Queue(maxsize=0)
 
 		try:
-			# Attempt to receive packet (+40 for encryption)
-		 	# (data, address) = MAIN_SOCKET.recvfrom(nbytes + HEADER_LEN + 40)
-			(data, address) = MAIN_SOCKET.recvfrom(max_window_size)
 
-			# to_return = data[HEADER_LEN:nbytes]
-
-			window.put(data[HEADER_LEN:])
-
+			# Receive data, at most the remaining window size
 			global window_size
-			window_size = window_size - len(data)
 
+			(data, address) = MAIN_SOCKET.recvfrom(window_size)
+
+			# Separate header and actual data (delivery), unpack header
+			delivery = data[HEADER_LEN:]
+			header = struct.unpack(PKT_HEADER_FMT, data[:HEADER_LEN])
+
+			# If we don't have space for the delivery
+			# Update remaining window size
+			window_size = window_size - len(delivery) + nbytes
+			if header[11] > window_size:
+				header = PKT_HEADER_DATA.pack(VERSION,
+											  ACK,
+											  OPT_PTR,
+											  PROTOCOL,
+											  HEADER_LEN,
+											  CHECKSUM,
+											  SRC_PORT,
+											  DEST_PORT,
+											  0,
+											  0,
+											  window_size,
+											  0)
+				MAIN_SOCKET.sendto(header, address)
+
+			# Otherwise, decrypt delivery if necessary, and add to queue
+			else:
+				opts = header[2]
+				if opts == IS_ENCRYPTED:
+					window.put(self.server_box.decrypt(delivery))
+				else:
+					window.put(delivery)
+
+				# Gets sequence number and assigns to ack_num
+				ack_num = header[8]
+
+				# Create header
+				header = PKT_HEADER_DATA.pack(VERSION,
+											  ACK,
+											  OPT_PTR,
+											  PROTOCOL,
+											  HEADER_LEN,
+											  CHECKSUM,
+											  SRC_PORT,
+											  DEST_PORT,
+											  0,
+											  ack_num,
+											  window_size,
+											  0)
+
+				# Attempt to send ACK
+				MAIN_SOCKET.sendto(header, address)
+
+
+			# Get data to return
 			to_return = window.get(nbytes)
 
-			# Unpack header
-			unpacked_header = struct.unpack(PKT_HEADER_FMT, data[:HEADER_LEN])
-
-			# Used to check if encrypted
-			opts = unpacked_header[2]
-			if opts == IS_ENCRYPTED:
-				to_return = self.server_box.decrypt(to_return)
-			else:
-				to_return = to_return[:nbytes]
-
-			# Gets sequence number and assigns to ack_num
-			ack_num = unpacked_header[8]
-
-			# Create ACK header
-			header = PKT_HEADER_DATA.pack(VERSION,
-										  ACK,
-										  OPT_PTR,
-										  PROTOCOL,
-										  HEADER_LEN,
-										  CHECKSUM,
-										  SRC_PORT,
-										  DEST_PORT,
-										  0,
-										  ack_num,
-										  WINDOW,
-										  0)
-			# Attempt to send ACK
-			MAIN_SOCKET.sendto(header, address)
 		except syssock.error:
+
 			to_return = ""
 			print("Error: recv() failed")
 
