@@ -44,6 +44,7 @@ ENCRYPT = 236
 global IS_ENCRYPTED
 IS_ENCRYPTED = 0b01
 
+
 # these functions are global to the class and
 # define the UDP ports all messages are sent
 # and received from
@@ -94,6 +95,9 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 
 	global queue
 	queue = ""
+
+	global total_sent
+	total_sent = 0
 
 # read the keyfile. The result should be a private key and a keychain of
 # public keys
@@ -399,7 +403,6 @@ class socket:
 		CONNECTION_SET = False
 
 	def send(self, buffer):
-
 		# Get globals
 		global window_size
 		global ack
@@ -422,7 +425,7 @@ class socket:
 
 		# Start sending segments of the fragment
 		while seq_num < fragment_len:
-			print seq_num
+
 			# Get range of bytes to send
 			if seq_num + default_packet_size >= fragment_len:
 				end_dist = fragment_len
@@ -459,6 +462,7 @@ class socket:
 				ack = MAIN_SOCKET.recv(HEADER_LEN)
 			except syssock.error:
 				print("Error: send() failed")
+				return seq_num
 
 			unpacked_ack = struct.unpack(PKT_HEADER_FMT, ack)
 			window_size = unpacked_ack[10]
@@ -469,20 +473,16 @@ class socket:
 				seq_num = highest_ack_num
 
 			attempts = 0
-			while window_size == 0 & attempts < 10:
+			while window_size == 0:
 				try:
 					# Receive ACK and unpack metadata
 					ack = MAIN_SOCKET.recv(HEADER_LEN)
 				except syssock.error:
-					if attempts == 10:
-						print("Error: send()123123 failed")
+					print("Error: send() failed")
 
 				unpacked_ack = struct.unpack(PKT_HEADER_FMT, ack)
 				window_size = unpacked_ack[10]
-				highest_ack_num += unpacked_ack[9]
-				seq_num = highest_ack_num
 
-		print seq_num
 		return seq_num
 
 	def recv(self, nbytes):
@@ -523,7 +523,7 @@ class socket:
 
 		# Try to receive data from client
 		try:
-			(data, address) = MAIN_SOCKET.recvfrom(window_size+80)
+			(data, address) = MAIN_SOCKET.recvfrom(max_window_size)
 		except syssock.error:
 			print("Error: recv() failed")
 			return ""
@@ -542,11 +542,12 @@ class socket:
 			CONNECTION_SET = False
 			return to_return
 
+
 		# If we don't have space for entire delivery
 		if len(delivery) > window_size:
 			# Put from start of delivery to remaining window size
 			queue = queue + delivery[:(window_size + nbytes)]
-			ack_num = header[8] + window_size
+			ack_num = header[8] + window_size + nbytes
 			window_size = 0
 
 			# Send header indicating queue is full
@@ -589,6 +590,5 @@ class socket:
 
 		# Get data and return
 		to_return = queue[:nbytes]
-		print window_size
 		queue = queue[nbytes:]
 		return to_return
