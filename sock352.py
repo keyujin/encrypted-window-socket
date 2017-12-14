@@ -3,7 +3,6 @@ import binascii
 import sys
 import socket as syssock
 import struct
-import Queue as Q
 
 # encryption libraries 
 import nacl.utils
@@ -44,7 +43,6 @@ ENCRYPT = 236
 global IS_ENCRYPTED
 IS_ENCRYPTED = 0b01
 
-
 # these functions are global to the class and
 # define the UDP ports all messages are sent
 # and received from
@@ -53,6 +51,7 @@ IS_ENCRYPTED = 0b01
 # bk375 - Benjamin Ker
 
 def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
+
 	# Initialize UDP socket
 	global MAIN_SOCKET
 	MAIN_SOCKET = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
@@ -87,17 +86,17 @@ def init(UDPportTx, UDPportRx):  # initialize your UDP socket here
 	global CONNECTION_SET
 	CONNECTION_SET = False
 
+	# Remaining window capacity
 	global window_size
 	window_size = 32000
 
+	# Maximum window capacity
 	global max_window_size
 	max_window_size = 32000
 
+	# Queue for server
 	global queue
 	queue = ""
-
-	global total_sent
-	total_sent = 0
 
 # read the keyfile. The result should be a private key and a keychain of
 # public keys
@@ -133,6 +132,7 @@ def readKeyChain(filename):
 
 
 class socket:
+
 	def __init__(self):
 		pass
 
@@ -140,14 +140,12 @@ class socket:
 		MAIN_SOCKET.bind(('', sock352portRx))
 
 	def connect(self, *args):
-		# Create the SYN header
-		# Send the SYN packet A
-		# Start timer
-		# recv SYN ACK B
-		# send ACK C
-		# If there is error, send header again
 
+		# Get globals
 		global ENCRYPT
+		global address
+
+		# Check if encryption has been requested
 		if (len(args) >= 1):
 			address = args[0]
 		if (len(args) >= 2):
@@ -171,11 +169,10 @@ class socket:
 		# Connect to server address
 		MAIN_SOCKET.connect((address[0], sock352portTx))
 
-		# Create SYN header
-		seq_num = 19  # random number
+		# Create SYN header (random seq_num)
+		seq_num = 19
 		ack_num = seq_num + 1
 		payload_len = 0
-
 		syn_header = PKT_HEADER_DATA.pack(VERSION,
 										  SYN,
 										  OPT_PTR,
@@ -254,7 +251,6 @@ class socket:
 		# Create SYN-ACK header
 		new_seq_num = response_as_struct[9]
 		new_ack_num = response_as_struct[8] + 1
-
 		ack_header = PKT_HEADER_DATA.pack(VERSION,
 										  SYN | ACK,
 										  OPT_PTR,
@@ -278,8 +274,13 @@ class socket:
 		return
 
 	def accept(self, *args):
+
+		# Get globals
 		global ENCRYPT
 		global client_addr
+		global CONNECTION_SET
+
+		# Check for encryption option
 		if (len(args) >= 1):
 			if (args[0] == ENCRYPT):
 				self.encryption = True
@@ -287,14 +288,9 @@ class socket:
 			self.encryption = False
 
 		# recv SYN A
-		# send SYN ACK B
-		# ACK C
-		global CONNECTION_SET
-
-		# recv SYN A
 		(data, address) = MAIN_SOCKET.recvfrom(HEADER_LEN)
-
 		client_addr = address
+
 		# Get client's public key
 		if self.encryption:
 			if (("localhost", sock352portTx) in privateKeys):
@@ -351,7 +347,6 @@ class socket:
 
 		return (self, address)
 
-
 	def close(self):
 
 		fin_header = PKT_HEADER_DATA.pack(VERSION,
@@ -403,6 +398,7 @@ class socket:
 		CONNECTION_SET = False
 
 	def send(self, buffer):
+
 		# Get globals
 		global window_size
 		global ack
@@ -431,7 +427,6 @@ class socket:
 				end_dist = fragment_len
 			else:
 				end_dist = seq_num + default_packet_size
-
 
 			# Calculate size of our payload
 			payload_len = end_dist - seq_num
@@ -474,7 +469,6 @@ class socket:
 				highest_ack_num = unpacked_ack[9]
 				seq_num = highest_ack_num
 
-			attempts = 0
 			while window_size == 0:
 				try:
 					# Receive ACK and unpack metadata
@@ -543,7 +537,6 @@ class socket:
 			queue = queue[nbytes:]
 			CONNECTION_SET = False
 			return to_return
-
 
 		# If we don't have space for entire delivery
 		if len(delivery) > window_size:
